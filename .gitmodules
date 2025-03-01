@@ -1,0 +1,3 @@
+[submodule "visualizer-template-public"]
+	path = visualizer-template-public
+	url = git@github.com:siro53/visualizer-template-public.git

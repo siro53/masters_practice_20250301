@@ -344,19 +344,6 @@ vector<int> ord_sort(const vector<T>& v, bool greater = false) {
 }
 #pragma endregion Macros
 
-class RNG32 {
-public:
-    RNG32() : mt(std::chrono::steady_clock::now().time_since_epoch().count()) {}
-    // [l, r)
-    int randint(int l, int r) {
-        std::uniform_int_distribution<int> dist(l, r - 1);
-        return dist(mt);
-    }
-    int randint(int r) { return randint(0, r); }
-
-private:
-    std::mt19937 mt;
-};
 
 namespace geometry {
     // Point : 複素数型を位置ベクトルとして扱う
@@ -721,201 +708,252 @@ namespace geometry {
     }
 
 } // namespace geometry
-
-struct Solver {
-    RNG32 rnd;
-    using D = double;
-    const int MAX_TURN = 5000;
-
-    int N; // 目的地の数
-    int M; // 壁の数
-    int x, y; // ドローンの位置
-    D epsilon; // 風の影響（標準偏差）
-    D delta; // 計測時の誤差（標準偏差）
-    vector<pair<int, int>> targets; // 目的地
-    vector<tuple<int, int, int, int>> walls; // 壁
-    vector<tuple<char, int, int>> outputs; // 出力結果
-    int vx, vy; // ドローンの速度
-
-    vector<bool> seen;
-
-    Solver() {}
-    Solver(int N, int M, int sx, int sy, D epsilon, D delta, vector<pair<int, int>> targets, vector<tuple<int, int, int, int>> walls):
-        N(N), M(M), x(sx), y(sy), epsilon(epsilon), delta(delta), targets(targets), walls(walls), vx(0), vy(0), seen(N, false) {}
-
-    D dist2(int x1, int x2, int y1, int y2) {
-        D d1 = (D)(x1 - x2) * (x1 - x2);
-        D d2 = (D)(y1 - y2) * (y1 - y2);
-        return d1 + d2;
+const int MAX_TURN = 5000;
+using D = double;
+int N, M;
+int X; // 点の数
+double eps, delta;
+int sx, sy;
+vector<int> px, py;
+vector<int> lx, ly, rx, ry;
+set<int> visited_p;
+int c, h;
+vector<bool> seen;
+vector<tuple<char, int, int>> outputs; // 出力結果
+void accelarate(int x, int y) {
+  cout << "A " << x << ' ' << y << endl;
+  outputs.push_back(make_tuple('A', x, y));
+  return;
+}
+void survey(int x, int y) {
+  cout << "S " << x << ' ' << y << endl;
+  return;
+}
+D dist2(int x1, int x2, int y1, int y2) {
+  D d1 = (D)(x1 - x2) * (x1 - x2);
+  D d2 = (D)(y1 - y2) * (y1 - y2);
+  return d1 + d2;
+}
+vector<int> get_order() {
+  auto dp = make_vector<D>({1 << N, N}, LLINF);
+  auto pre = make_vector<pair<int, int>>({1 << N, N}, {-1, -1});
+  REP(i, N) {
+      dp[1 << i][i] = dist2(sx, sy, px[i], py[i]);
+  }
+  REP(mask, 1 << N) REP(i, N) {
+      int xi = px[i], yi = py[i];
+      REP(j, N) {
+          if(mask >> j & 1) continue;
+          int xj = px[j], yj = py[j];
+          auto d = dist2(xi, xj, yi, yj);
+          int new_mask = mask | (1 << j);
+          if(chmin(dp[new_mask][j], dp[mask][i] + d)) {
+              pre[new_mask][j] = {mask, i};
+          }
+      }
+  }
+  int now_mask = (1 << N) - 1;
+  int now_i = 0;
+  D mn = LLINF;
+  REP(i, N) if(chmin(mn, dp[(1 << N) - 1][i])) {
+      now_i = i;
+  }
+  vector<int> ret = {now_i};
+  while(1) {
+      auto [pre_mask, pre_i] = pre[now_mask][now_i];
+      now_mask = pre_mask;
+      now_i = pre_i;
+      if(now_i == -1) break;
+      ret.push_back(now_i);
+  }
+  return ret;
+}
+void init() {
+  cin >> N >> M >> eps >> delta;
+  X = N + M + M + 1;
+  cin >> sx >> sy;
+  px.resize(N);
+  py.resize(N);
+  for(int i = 0; i < N; i++) {
+    cin >> px[i] >> py[i];
+  }
+  lx.resize(M);
+  ly.resize(M);
+  rx.resize(M);
+  ry.resize(M);
+  for(int i = 0; i < M; i++) {
+    cin >> lx[i] >> ly[i] >> rx[i] >> ry[i];
+  }
+}
+int get_x(int i) {
+  if(i < N) {
+    return px[i];
+  } else if(i < N + M) {
+    return lx[i - N];
+  } else if(i < N + M + M) {
+    return rx[i - N - M];
+  } else {
+    return sx;
+  }
+}
+int get_y(int i) {
+  if(i < N) {
+    return py[i];
+  } else if(i < N + M) {
+    return ly[i - N];
+  } else if(i < N + M + M) {
+    return ry[i - N - M];
+  } else {
+    return sy;
+  }
+}
+const double inf = -1;
+const double inf2 = 1e18;
+vector<int> dijkstra(vector<vector<pair<int, double>>> &G, int s, int t) {
+  vector<vector<int>> path(X, vector<int>{});
+  priority_queue<tuple<double, int, vector<int>>, vector<tuple<double, int, vector<int>>>, greater<tuple<double, int, vector<int>>>> pq;
+  pq.push(make_tuple(0, s, vector<int>{}));
+  vector<double> dist(X, inf2);
+  dist[s] = 0;
+  while(!pq.empty()) {
+    auto [c, u, vec] = pq.top();
+    pq.pop();
+    if(c > dist[u]) {
+      continue;
     }
-
-    vector<int> get_order() {
-        auto dp = make_vector<D>({1 << N, N}, LLINF);
-        auto pre = make_vector<pair<int, int>>({1 << N, N}, {-1, -1});
-        REP(i, N) {
-            auto [tx, ty] = targets[i];
-            dp[1 << i][i] = dist2(x, y, tx, ty);
-        }
-        REP(mask, 1 << N) REP(i, N) {
-            auto [xi, yi] = targets[i];
-            REP(j, N) {
-                if(mask >> j & 1) continue;
-                auto [xj, yj] = targets[j];
-                auto d = dist2(xi, xj, yi, yj);
-                int new_mask = mask | (1 << j);
-                if(chmin(dp[new_mask][j], dp[mask][i] + d)) {
-                    pre[new_mask][j] = {mask, i};
-                }
-            }
-        }
-        int now_mask = (1 << N) - 1;
-        int now_i = 0;
-        D mn = LLINF;
-        REP(i, N) if(chmin(mn, dp[(1 << N) - 1][i])) {
-            now_i = i;
-        }
-        vector<int> ret = {now_i};
-        while(1) {
-            auto [pre_mask, pre_i] = pre[now_mask][now_i];
-            now_mask = pre_mask;
-            now_i = pre_i;
-            if(now_i == -1) break;
-            ret.push_back(now_i);
-        }
-        return ret;
+    for(auto [v, cost] : G[u]) {
+      double nc = c + cost;
+      if(nc < dist[v]) {
+        dist[v] = nc;
+        vector<int> nvec = vec;
+        nvec.emplace_back(v);
+        path[v] = nvec;
+        pq.push(make_tuple(nc, v, nvec));
+      }
     }
-
-    bool is_reach(int i) {
-        auto [tx, ty] = targets[i];
-        return dist2(x, tx, y, ty) <= 1000000;
-    }
-
-    // 加速
-    void accelarate(int ax, int ay) {
-        assert((D)ax * ax + (D)ay * ay <= 500 * 500);
-        outputs.emplace_back('A', ax, ay);
-        cout << "A " << ax << ' ' << ay << endl;
-    }
-
-    // 計測
-    void simulate(int bx, int by) {
-        assert((ll)bx * bx + (ll)by * by <= 10000000000LL);
-        outputs.emplace_back('S', bx, by);
-        cout << "S " << bx << ' ' << by << endl;
-    }
-
-    bool is_valid(int X, int Y) {
-        return (-100000 <= X and X <= 100000 and -100000 <= Y and Y <= 100000);
-    }
-
-    bool isIntersect(int x1, int y1, int x2, int y2) {
-        for(auto [lx, ly, rx, ry] : walls) {
-            geometry::Segment s1({lx, ly}, {rx, ry});
-            geometry::Segment s2({x1, y1}, {x2, y2});
-            if(geometry::isIntersect(s1, s2, true)) return true;
-        }
-        return false;
-    }
-
-    void solve() {
-        // 目的地を訪れる順番
-        auto order = get_order();
-        debug(order);
-        bool isClash = false;
-        while(count(ALL(seen), false) > 0 and SZ(outputs) < MAX_TURN) {
-            assert(!order.empty());
-            int tid = order.back();
-            if(seen[tid]) {
-                order.pop_back();
-                continue;
-            }
-            if(isClash) {
-                const int CLIMIT = 500;
-                int ax = rnd.randint(-CLIMIT, CLIMIT + 1);
-                int ay = rnd.randint(-CLIMIT, CLIMIT + 1);
-                while(!(ax * ax + ay * ay <= 500 * 500 and !isIntersect(x, y, x + ax, y + ay))) {
-                    ax = rnd.randint(-CLIMIT, CLIMIT + 1);
-                    ay = rnd.randint(-CLIMIT, CLIMIT + 1);
-                }
-                accelarate(ax, ay);
-
-                if(SZ(outputs) == MAX_TURN) return;
-            
-                INT(c, h);
-                if(h > 0) {
-                    REP(_, h) {
-                        INT(q);
-                        debug(q);
-                        seen[q] = true;
-                    }
-                }
-
-                vx += ax;
-                vy += ay;
-                if(c == 1) {
-                    vx = 0, vy = 0;
-                    isClash = true;
-                } else {
-                    isClash = false;
-                }
-                x += vx;
-                y += vy;
-            }
-            auto [tx, ty] = targets[tid];
-            int nvx = tx - x;
-            int nvy = ty - y;
-            int ax = nvx - vx;
-            int ay = nvy - vy;
-            const int LIMIT = 500;
-            if((D)ax * ax + (D)ay * ay > LIMIT * LIMIT) {
-                D ok = 0, ng = 1;
-                REP(_, 200) {
-                    D mid = (ok + ng) / 2;
-                    D nax = D(ax) * mid, nay = D(ay) * mid;
-                    if(nax * nax + nay * nay <= LIMIT * LIMIT) {
-                        ok = mid;
-                    } else {
-                        ng = mid;
-                    }
-                }
-                ax *= ok;
-                ay *= ok;
-            }
-            accelarate(ax, ay);
-
-            if(SZ(outputs) == MAX_TURN) return;
-            
-            INT(c, h);
-            if(h > 0) {
-                REP(_, h) {
-                    INT(q);
-                    debug(q);
-                    seen[q] = true;
-                }
-            }
-
-            vx += ax;
-            vy += ay;
-            if(c == 1) {
-                vx = 0, vy = 0;
-                isClash = true;
-            }
-            x += vx;
-            y += vy;
-            // debug(x, y, vx, vy);
-        }
-    }
-};
+  }
+  return path[t];
+}
 
 int main() {
-    INT(N, M);
-    DBL(epsilon, delta);
-    INT(sx, sy);
-    vector<pair<int, int>> targets(N);
-    for(auto& [x, y] : targets) cin >> x >> y;
-    vector<tuple<int, int, int, int>> walls(M);
-    for(auto& [lx, ly, rx, ry] : walls) cin >> lx >> ly >> rx >> ry;
+  cin.tie(0); cout.tie(0);
+  ios::sync_with_stdio(false);
+  using D = double; 
+  init();
+  vector<vector<double>> dist(X, vector<double>(X, inf));
+  for(int i = 0; i < X; i++) {
+    for(int j = 0; j < X; j++) {
+      auto s1 = geometry::Segment(
+        geometry::Point(get_x(i), get_y(i)),
+        geometry::Point(get_x(j), get_y(j))
+      );
+      bool is_cross = false;
+      for(int k = 0; k < M; k++) {
+        if((i >= N && i < N + M + M) && (k == i - N || k == i - N - M)) {
+          continue;
+        }
+        auto s2 = geometry::Segment(
+          geometry::Point(lx[k], ly[k]),
+          geometry::Point(rx[k], ry[k])
+        );
+        if(geometry::isIntersect(s1, s2, false)) {
+          is_cross = true;
+        }
+      }
+      if(!is_cross) {
+        dist[i][j] = hypot(get_x(i) - get_x(j), get_y(i) - get_y(j));
+      }
+    }
+  }
+  vector<vector<pair<int, double>>> G(X, vector<pair<int, double>>(X));
+  for(int i = 0; i < X; i++) {
+    for(int j = 0; j < X; j++) {
+      if(i == j) {
+        continue;
+      }
+      if(dist[i][j] < 0.1) {
+        continue;
+      }
+      G[i].push_back(make_pair(j, dist[i][j]));
+    }
+  }
+  // とりあえず順に訪問する。
+  int x, y;
+  int vx = 0, vy = 0;
+  x = sx;
+  y = sy;
+  seen.assign(N, false);
+  vector<pair<int, int>> targets(N + M + M);
+  for(int i = 0; i < N; i++) {
+    targets[i] = make_pair(px[i], py[i]);
+  }
+  for(int i = 0; i < M; i++) {
+    targets[i + N] = make_pair(lx[i], ly[i]);
+  }
+  for(int i = 0; i < M; i++) {
+    targets[i + N + M] = make_pair(rx[i], ry[i]);
+  }
+  targets.push_back(make_pair(sx, sy));
+  auto orders = get_order();
+  for(int i = 0; i < N; i++) {
+    vector<int> order = i == 0 ? dijkstra(G, N + M + M, orders[0]) : dijkstra(G, orders[i], orders[i + 1]);
+    reverse(order.begin(), order.end());
 
-    Solver solver(N, M, sx, sy, epsilon, delta, targets, walls);
-    solver.solve();
+    cerr << orders[i] << ": ";
+    for(int j = order.size() - 1; j >= 0; j--) {
+        int k = order[j];
+        cerr << "(" << get_x(k) << ", " << get_y(k) << ")," << " ";
+    } 
+    cerr << endl;
+    
+    while(!order.empty() && accumulate(seen.begin(), seen.end(), 0) < N && (int) outputs.size() < MAX_TURN) {
+      assert(!order.empty());
+      int tid = order.back();
+      auto [tx, ty] = targets[tid];
+      int nvx = tx - x;
+      int nvy = ty - y;
+      int ax = nvx - vx;
+      int ay = nvy - vy;
+      if(hypot(nvx, nvy) < 500) {
+        order.pop_back();
+        continue;
+      }
+
+      if((D)ax * ax + (D)ay * ay > 500 * 500) {
+          D ok = 0, ng = 1;
+          for(int _e = 0; _e < 200; _e++) {
+              D mid = (ok + ng) / 2;
+              D nax = D(ax) * mid, nay = D(ay) * mid;
+              if(nax * nax + nay * nay <= 500 * 500) {
+                  ok = mid;
+              } else {
+                  ng = mid;
+              }
+          }
+          ax *= ok;
+          ay *= ok;
+      }
+      accelarate(ax, ay);
+      
+      cin >> c >> h;
+      if(h > 0) {
+        for(int f = 0; f < h; f++) {
+          int q;
+          cin >> q;
+          seen[q] = true;
+        }
+      }
+
+      vx += ax;
+      vy += ay;
+      if(c == 1) {
+        vx = 0, vy = 0;
+      }
+      x += vx;
+      y += vy;
+      // debug(x, y, vx, vy);
+    }
+  }
+
+  return 0;
 }
